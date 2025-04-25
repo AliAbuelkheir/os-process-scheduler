@@ -10,7 +10,7 @@ typedef struct {
     int memUpperBound;
 } PCB;
 
-PCB createPCB(int pid, int priority, int memLower, int memUpper);
+PCB createProcess(int pid, int priority, const char* filename);
 
 void printPCB(PCB pcb);
 void setState(PCB *pcb, const char *state);

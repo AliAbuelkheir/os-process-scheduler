@@ -1,0 +1,27 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build OS Project",
+        "type": "shell",
+        "command": "gcc",
+        "args": [
+          "src/main2.c",
+          "src/memory.c",
+          "src/process.c",
+          "src/fileio.c",
+          //"src/interpreter.c",
+          "-Iinclude",
+          "-o",
+          "os_sim.exe"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": ["$gcc"],
+        "detail": "Compile all .c files for OS Project"
+      }
+    ]
+  }
+  
