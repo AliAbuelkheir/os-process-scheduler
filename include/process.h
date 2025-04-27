@@ -16,5 +16,6 @@ void printPCB(PCB pcb);
 void setState(PCB *pcb, const char *state);
 void setPriority(PCB *pcb, int priority);
 void incrementPC(PCB *pcb);
+PCB* findPCBByPid(int pid);
 
 #endif

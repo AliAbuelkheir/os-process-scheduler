@@ -6,6 +6,9 @@
 #include "../include/fileio.h"
 #include "../include/memory.h"
 
+PCB pcbsGlobal[3];  
+int globalPcbCount = 0;
+
 PCB createProcess(int pid, int priority, const char* filename) {
     PCB pcb;
     pcb.pid = pid;
@@ -61,6 +64,9 @@ PCB createProcess(int pid, int priority, const char* filename) {
     pcb.memLowerBound = startIndex;
     pcb.memUpperBound = startIndex + requiredMemory - 1;
 
+    // 7. Store it globally
+    pcbsGlobal[globalPcbCount++] = pcb;
+
     return pcb;
 }
 
@@ -74,6 +80,9 @@ void printPCB(PCB pcb) {
 
 void setState(PCB *pcb, const char *state) {
     strcpy(pcb->state, state);
+    char key[30];
+    sprintf(key, "P%d_state", pcb->pid);
+    setMemory(key, state);
 }
 
 void setPriority(PCB *pcb, int priority) {
@@ -82,4 +91,17 @@ void setPriority(PCB *pcb, int priority) {
 
 void incrementPC(PCB *pcb) {
     pcb->programCounter++;
+    char key[30], value[10];
+    sprintf(key, "P%d_pc", pcb->pid);
+    sprintf(value, "%d", pcb->programCounter);
+    setMemory(key, value);
+}
+
+PCB* findPCBByPid(int pid) {
+    for (int i = 0; i < globalPcbCount; i++) {
+        if (pcbsGlobal[i].pid == pid) {
+            return &pcbsGlobal[i];
+        }
+    }
+    return NULL;
 }
