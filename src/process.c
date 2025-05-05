@@ -1,3 +1,4 @@
+//process.c
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -104,4 +105,40 @@ PCB* findPCBByPid(int pid) {
         }
     }
     return NULL;
+}
+ProcessInfo* findProcessByPid(int pid) {
+    for (int i = 0; i < processCount; i++) {
+        if (processList[i].pcb.pid == pid) {
+            return &processList[i];
+        }
+    }
+    return NULL;
+}
+
+
+ProcessInfo processList[10];
+int processCount = 0;
+
+void addProcess(const char* filename, int arrivalTime) {
+    PCB pcb = createProcess(processCount + 1, processCount + 1, filename);
+    
+    processList[processCount].pid = pcb.pid;
+    processList[processCount].arrivalTime = arrivalTime;
+    processList[processCount].loaded = 0;
+    processList[processCount].pcb = pcb;
+    strcpy(processList[processCount].sourceFile, filename); 
+
+    processCount++;
+}
+
+void sortProcessesByArrival() {
+    for (int i = 0; i < processCount - 1; i++) {
+        for (int j = i + 1; j < processCount; j++) {
+            if (processList[i].arrivalTime > processList[j].arrivalTime) {
+                ProcessInfo temp = processList[i];
+                processList[i] = processList[j];
+                processList[j] = temp;
+            }
+        }
+    }
 }

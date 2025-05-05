@@ -1,12 +1,15 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-#include "process.h"
-
+void initScheduler(int type, int quantum);
 void addToReadyQueue(int pid);
-void refreshReadyQueue(PCB* pcbs, int pcbCount);
-void runFCFS(PCB* pcbs, int pcbCount);
-void runRR(PCB* pcbs, int pcbCount, int quantum);
-void runMLFQ(PCB* pcbs, int pcbCount);
+void addToMLFQ(int pid, int level);
+void startScheduler();
+
+extern int schedulerType;
+extern int rrQuantum;
+extern int clockCycle;
+extern int front,rear;
+extern int readyQueue[];
 
 #endif

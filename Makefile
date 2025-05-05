@@ -1,18 +1,35 @@
-# Makefile
-
 # Compiler
-CC = gcc
+CC = clang
 
-# Executable name
-TARGET = main2
+# Executable names
+TARGET = main
+GUI_TARGET = gui
 
-# Source files (now inside src/)
-SRCS = src/main2.c src/memory.c src/process.c src/fileio.c src/interpreter.c src/mutex.c src/scheduler.c
+# Backend source files (excluding main.c for GUI)
+SRC_DIR = src
+COMMON_SRCS = $(SRC_DIR)/memory.c $(SRC_DIR)/process.c \
+              $(SRC_DIR)/fileio.c $(SRC_DIR)/interpreter.c $(SRC_DIR)/mutex.c \
+              $(SRC_DIR)/scheduler.c
 
-# Build rule
-all:
-	$(CC) $(SRCS) -o src/$(TARGET)
+# Main CLI version
+SRCS = $(SRC_DIR)/main.c $(COMMON_SRCS)
 
-# Clean rule
+# GUI source files
+GUI_SRCS = $(SRC_DIR)/gui_main.c $(SRC_DIR)/gui_control.c \
+           $(SRC_DIR)/gui_process.c $(SRC_DIR)/gui_memory.c \
+           $(SRC_DIR)/gui_mutex.c $(SRC_DIR)/gui_log.c
+
+# Build rules
+all: $(TARGET)
+
+$(TARGET):
+	$(CC) $(SRCS) -o $(SRC_DIR)/$(TARGET)
+
+gui: FORCE
+	mkdir -p bin
+	$(CC) $(GUI_SRCS) $(COMMON_SRCS) -o bin/$(GUI_TARGET) `pkg-config --cflags --libs gtk+-3.0`
+
 clean:
-	rm -f src/$(TARGET)
+	rm -f $(SRC_DIR)/$(TARGET) bin/$(GUI_TARGET)
+
+FORCE:  # this will force make to always rebuild gui

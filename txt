@@ -1,0 +1,5 @@
+programs/Program_1.txt
+programs/Program_2.txt
+programs/Program_3.txt
+
+./src/main

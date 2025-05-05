@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "interpreter.h": "c",
+        "scheduler.h": "c",
+        "process.h": "c",
+        "memory.h": "c",
+        "gui_control.h": "c",
+        "gui_log.h": "c",
+        "gui_memory.h": "c",
+        "gui_process.h": "c",
+        "gui_mutex.h": "c"
+    },
+    "C_Cpp.default.compilerPath": "/usr/bin/gcc"
+}

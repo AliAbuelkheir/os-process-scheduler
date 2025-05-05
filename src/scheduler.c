@@ -1,172 +1,212 @@
-#include "../include/scheduler.h"
-#include "../include/interpreter.h"
+#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include "../include/scheduler.h"
+#include "../include/process.h"
+#include "../include/interpreter.h"
+#include "../include/memory.h"
 
-#define MAX_READY_QUEUE 10
-int readyQueue[MAX_READY_QUEUE];
-int readyCount = 0;
+int schedulerType = 1;
+int rrQuantum = 2;
+int finishedFCFS = 0;
+int finishedRR = 0;
+int finishedMLFQ = 0;
 
-void addToReadyQueue(int pid) {
-    readyQueue[readyCount++] = pid;
+#define MAX_QUEUE_SIZE 10
+
+int readyQueue[MAX_QUEUE_SIZE];
+int front = 0, rear = 0;
+
+int mlfq[4][MAX_QUEUE_SIZE];
+int mlfqFront[4] = {0}, mlfqRear[4] = {0};
+int mlfqQuantum[4] = {1, 2, 4, 8};
+
+int clockCycle = 0;
+
+void initScheduler(int type, int quantum) {
+    schedulerType = type;
+    rrQuantum = quantum;
 }
 
-int popFromReadyQueue() {
-    if (readyCount == 0) return -1;
-    int pid = readyQueue[0];
-    for (int i = 1; i < readyCount; i++) {
-        readyQueue[i - 1] = readyQueue[i];
-    }
-    readyCount--;
+void enqueue(int queue[], int *rear, int pid) {
+    queue[(*rear)++] = pid;
+}
+
+int dequeue(int queue[], int *front, int *rear) {
+    if (*front == *rear) return -1;
+    int pid = queue[*front];
+    for (int i = *front + 1; i < *rear; i++)
+        queue[i - 1] = queue[i];
+    (*rear)--;
     return pid;
 }
 
-// void refreshReadyQueue(PCB* pcbs, int pcbCount) {
-//     for (int i = 0; i < pcbCount; i++) {
-//         int alreadyQueued = 0;
-//         for (int j = 0; j < readyCount; j++) {
-//             if (readyQueue[j] == pcbs[i].pid) {
-//                 alreadyQueued = 1;
-//                 break;
-//             }
-//         }
-//         if (!alreadyQueued && strcmp(pcbs[i].state, "Ready") == 0) {
-//             addToReadyQueue(pcbs[i].pid);
-//         }
-//     }
-// }
-void refreshReadyQueue(PCB* pcbs, int pcbCount) {
-    readyCount = 0; // Clear the old ready queue first
-    for (int i = 0; i < pcbCount; i++) {
-        if (strcmp(pcbs[i].state, "Ready") == 0) {
-            addToReadyQueue(pcbs[i].pid);
+void addToReadyQueue(int pid) {
+    enqueue(readyQueue, &rear, pid);
+}
+
+void addToMLFQ(int pid, int level) {
+    if (level >= 0 && level < 4)
+        enqueue(mlfq[level], &mlfqRear[level], pid);
+}
+
+void loadArrivedProcesses() {
+    for (int i = 0; i < processCount; i++) {
+        if (processList[i].arrivalTime <= clockCycle && !processList[i].loaded) {
+            processList[i].loaded = 1;
+            PCB *pcb = &processList[i].pcb;
+            if (schedulerType == 3){
+                setState(pcb, "Ready");
+                addToMLFQ(pcb->pid, 0);
+            }
+            else{
+                setState(pcb, "Ready");
+                addToReadyQueue(pcb->pid);
+            }
+            printf("Process %d loaded into memory at clock cycle %d.\n", pcb->pid, clockCycle);
         }
     }
 }
 
+void runFCFS() {
+    int currentPid = -1;
 
-PCB* findPCB(PCB* pcbs, int pcbCount, int pid) {
-    for (int i = 0; i < pcbCount; i++) {
-        if (pcbs[i].pid == pid) return &pcbs[i];
+    while (1) {
+        loadArrivedProcesses();
+
+        if (currentPid == -1 && front != rear) {
+            currentPid = dequeue(readyQueue, &front, &rear);
+        }
+
+        if (currentPid != -1) {
+            PCB* pcb = findPCBByPid(currentPid);
+
+            if (!pcb || strcmp(pcb->state, "Finished") == 0) {
+                currentPid = -1;
+                clockCycle++;
+                continue;
+            }
+
+            setState(pcb, "Running");
+            int finished = executeInstruction(pcb, clockCycle);
+            if (finished) { finishedFCFS++; }
+
+            if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0) {
+                currentPid = -1;
+            }
+        }
+        clockCycle++;
+        
+        if (finishedFCFS == processCount){
+            printf("Program finished execution.\n");
+            break;
+        }
     }
-    return NULL;
 }
 
-//FCFS
-void runFCFS(PCB* pcbs, int pcbCount) {
-    for (int i = 0; i < pcbCount; i++) {
-        addToReadyQueue(pcbs[i].pid);
+void runRR() {
+    int quantumCounter = 0;
+
+    while (1) {
+        if (front == rear) {
+            loadArrivedProcesses();
+            clockCycle++;
+        }
+
+        int pid = dequeue(readyQueue, &front, &rear);
+        PCB *pcb = findPCBByPid(pid);
+        if (!pcb || strcmp(pcb->state, "Finished") == 0) continue;
+
+        setState(pcb, "Running");
+        quantumCounter = 0;
+
+        while (quantumCounter < rrQuantum) {
+            loadArrivedProcesses();
+            int finished = executeInstruction(pcb, clockCycle);
+            if (finished) { finishedRR++; }            
+            clockCycle++;
+            quantumCounter++;
+
+            if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0)
+                break;
+        }
+
+        if (strcmp(pcb->state, "Ready") == 0 || strcmp(pcb->state, "Running") == 0) {
+            setState(pcb, "Ready");
+            addToReadyQueue(pcb->pid);  
+        }
+        
+        if (finishedRR == processCount){
+            printf("Program finished execution.\n");
+            break;
+        }
     }
+}
 
-    while (readyCount > 0) {
-        int pid = popFromReadyQueue();
-        PCB* pcb = findPCB(pcbs, pcbCount, pid);
+void runMLFQ() {
+    while (1) {
+        int level = -1, pid = -1;
 
-        while (strcmp(pcb->state, "Ready") == 0) {
-            executeInstruction(pcb);
-            if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0) {
+        for (int i = 0; i < 4; i++) {
+            if (mlfqFront[i] != mlfqRear[i]) {
+                pid = dequeue(mlfq[i], &mlfqFront[i], &mlfqRear[i]);
+                level = i;
                 break;
             }
         }
-        refreshReadyQueue(pcbs, pcbCount);
-    }
-}
 
-//ROUND ROBIN
-void runRR(PCB* pcbs, int pcbCount, int quantum) {
-    for (int i = 0; i < pcbCount; i++) {
-        if (strcmp(pcbs[i].state, "Ready") == 0) {
-            addToReadyQueue(pcbs[i].pid);
+        if (pid == -1) {
+            loadArrivedProcesses();
+            clockCycle++;
         }
-    }
 
-    while (readyCount > 0) {
-        int pid = popFromReadyQueue();
-        PCB* pcb = findPCB(pcbs, pcbCount, pid);
-        int used = 0;
-
-        while (used < quantum && strcmp(pcb->state, "Ready") == 0) {
-            executeInstruction(pcb);
-            used++;
-
-            if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0) {
-                break; 
-            }
+        PCB *pcb = findPCBByPid(pid);
+        if (!pcb || strcmp(pcb->state, "Finished") == 0) {
+            continue;
         }
-        refreshReadyQueue(pcbs, pcbCount);
         
-        if (strcmp(pcb->state, "Ready") == 0) {
-            addToReadyQueue(pcb->pid);
+        setState(pcb, "Running");
+        int quantum = mlfqQuantum[level];
+        int count = 0;
+
+        while (count < quantum) {
+            loadArrivedProcesses();  
+            int finished = executeInstruction(pcb, clockCycle);
+            if (finished) { finishedMLFQ++; }
+            clockCycle++;
+            count++;
+
+            if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0)
+                break;
         }
 
-        // for (int i = 0; i < pcbCount; i++) {
-        //     if (strcmp(pcbs[i].state, "Ready") == 0) {
-        //         int alreadyInQueue = 0;
-        //         for (int j = 0; j < readyCount; j++) {
-        //             if (readyQueue[j] == pcbs[i].pid) {
-        //                 alreadyInQueue = 1;
-        //                 break;
-        //             }
-        //         }
-        //         if (!alreadyInQueue) {
-        //             addToReadyQueue(pcbs[i].pid);
-        //         }
-        //     }
-        // }
+        if (strcmp(pcb->state, "Ready") == 0 || strcmp(pcb->state, "Running") == 0) {
+            int nextLevel = (level == 3) ? 3 : level + 1;
+            addToMLFQ(pcb->pid, nextLevel);
+            setState(pcb, "Ready");
+        }
+        
+        if (finishedMLFQ == processCount){
+            printf("Program finished execution.\n");
+            break;
+        }
     }
 }
 
-// MLFQ
-int queues[4][MAX_READY_QUEUE];
-int queueCounts[4] = {0, 0, 0, 0};
-int quantums[4] = {1, 2, 4, 8};
-
-void addToMLFQ(int level, int pid) {
-    queues[level][queueCounts[level]++] = pid;
-}
-
-int queuesNotEmpty() {
-    return queueCounts[0] || queueCounts[1] || queueCounts[2] || queueCounts[3];
-}
-
-void runMLFQ(PCB* pcbs, int pcbCount) {
-    for (int i = 0; i < pcbCount; i++) {
-        addToMLFQ(0, pcbs[i].pid); // start all at level 0
-    }
-
-    while (queuesNotEmpty()) {
-        for (int level = 0; level < 4; level++) {
-            if (queueCounts[level] == 0) continue;
-
-            int pid = queues[level][0];
-            for (int i = 1; i < queueCounts[level]; i++) {
-                queues[level][i - 1] = queues[level][i];
-            }
-            queueCounts[level]--;
-
-            PCB* pcb = findPCB(pcbs, pcbCount, pid);
-            int used = 0;
-
-            while (used < quantums[level] && strcmp(pcb->state, "Ready") == 0) {
-                executeInstruction(pcb);
-                used++;
-                if (strcmp(pcb->state, "Blocked") == 0 || strcmp(pcb->state, "Finished") == 0) {
-                    break;
-                }
-            }
-
-            refreshReadyQueue(pcbs, pcbCount);
-
-            if (strcmp(pcb->state, "Ready") == 0) {
-                if (used >= quantums[level]) { // Used full quantum? Demote
-                    if (level < 3) {
-                        addToMLFQ(level + 1, pid);
-                    } else {
-                        addToMLFQ(level, pid);
-                    }
-                } else { // Blocked early? stay same level
-                    addToMLFQ(level, pid);
-                }
-            }
-        }
+void startScheduler() {
+    printf("Starting scheduler...\n");
+    switch (schedulerType) {
+        case 1:
+            runFCFS();
+            break;
+        case 2:
+            runRR();
+            break;
+        case 3:
+            runMLFQ();
+            break;
+        default:
+            printf("Unknown scheduler type.\n");
     }
 }

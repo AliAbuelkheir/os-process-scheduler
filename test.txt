@@ -1,1 +1,3 @@
-testing program 3
+testing if program 3 reads correctly
+
+did it work

@@ -10,7 +10,7 @@
           "src/memory.c",
           "src/process.c",
           "src/fileio.c",
-          //"src/interpreter.c",
+          "src/interpreter.c",
           "-Iinclude",
           "-o",
           "os_sim.exe"
