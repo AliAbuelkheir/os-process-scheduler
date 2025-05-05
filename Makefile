@@ -1,5 +1,5 @@
 # Compiler
-CC = clang
+CC = gcc
 
 # Executable names
 TARGET = main
@@ -15,9 +15,7 @@ COMMON_SRCS = $(SRC_DIR)/memory.c $(SRC_DIR)/process.c \
 SRCS = $(SRC_DIR)/main.c $(COMMON_SRCS)
 
 # GUI source files
-GUI_SRCS = $(SRC_DIR)/gui_main.c $(SRC_DIR)/gui_control.c \
-           $(SRC_DIR)/gui_process.c $(SRC_DIR)/gui_memory.c \
-           $(SRC_DIR)/gui_mutex.c $(SRC_DIR)/gui_log.c
+GUI_SRCS = $(SRC_DIR)/gui_main.c 
 
 # Build rules
 all: $(TARGET)
