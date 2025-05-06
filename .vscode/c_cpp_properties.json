@@ -1,25 +1,74 @@
+// {
+//     "configurations": [
+//         {
+//             "name": "Win32",
+//             "includePath": [
+//                 "${workspaceFolder}/**",
+//                 "C:/msys64/mingw64/include",
+//                 "C:/msys64/mingw64/include/gtk-3.0",
+//                 "C:/msys64/mingw64/include/glib-2.0",
+//                 "C:/msys64/mingw64/lib/glib-2.0/include",
+//                 "C:/msys64/mingw64/include/pango-1.0"
+//             ],
+//             "defines": [
+//                 "_DEBUG",
+//                 "UNICODE",
+//                 "_UNICODE"
+//             ],
+//             "cStandard": "c17",
+//             "cppStandard": "gnu++17",
+//             "intelliSenseMode": "windows-gcc-x64",
+//             "configurationProvider": "ms-vscode.makefile-tools"
+//         }
+//     ],
+//     "version": 4
+// }
 {
     "configurations": [
-        {
-            "name": "Win32",
-            "includePath": [
-                "${workspaceFolder}/**",
-                "C:/msys64/mingw64/include",
-                "C:/msys64/mingw64/include/gtk-3.0",
-                "C:/msys64/mingw64/include/glib-2.0",
-                "C:/msys64/mingw64/lib/glib-2.0/include",
-                "C:/msys64/mingw64/include/pango-1.0"
-            ],
-            "defines": [
-                "_DEBUG",
-                "UNICODE",
-                "_UNICODE"
-            ],
-            "cStandard": "c17",
-            "cppStandard": "gnu++17",
-            "intelliSenseMode": "windows-gcc-x64",
-            "configurationProvider": "ms-vscode.makefile-tools"
-        }
+      {
+        "name": "Mac",
+        "includePath": [
+          "${workspaceFolder}/**",
+          "/opt/homebrew/Cellar/gtk+3/3.24.43/include/gtk-3.0",
+          "/opt/homebrew/Cellar/pango/1.56.3/include/pango-1.0",
+          "/opt/homebrew/Cellar/harfbuzz/11.2.0/include/harfbuzz",
+          "/opt/homebrew/Cellar/graphite2/1.3.14/include",
+          "/opt/homebrew/Cellar/cairo/1.18.4/include",
+          "/opt/homebrew/Cellar/cairo/1.18.4/include/cairo",
+          "/opt/homebrew/Cellar/fontconfig/2.16.0/include",
+          "/opt/homebrew/opt/freetype/include/freetype2",
+          "/opt/homebrew/Cellar/libxext/1.3.6/include",
+          "/opt/homebrew/Cellar/xorgproto/2024.1/include",
+          "/opt/homebrew/Cellar/libxrender/0.9.12/include",
+          "/opt/homebrew/Cellar/libx11/1.8.12/include",
+          "/opt/homebrew/Cellar/libxcb/1.17.0/include",
+          "/opt/homebrew/Cellar/libxau/1.0.12/include",
+          "/opt/homebrew/Cellar/libxdmcp/1.1.5/include",
+          "/opt/homebrew/Cellar/pixman/0.46.0/include/pixman-1",
+          "/opt/homebrew/include/gdk-pixbuf-2.0",
+          "/opt/homebrew/opt/libpng/include/libpng16",
+          "/opt/homebrew/opt/libtiff/include",
+          "/opt/homebrew/opt/zstd/include",
+          "/opt/homebrew/Cellar/xz/5.8.1/include",
+          "/opt/homebrew/opt/jpeg-turbo/include",
+          "/opt/homebrew/Cellar/at-spi2-core/2.56.2/include/atk-1.0",
+          "/opt/homebrew/Cellar/libepoxy/1.5.10/include",
+          "/opt/homebrew/Cellar/fribidi/1.0.16/include/fribidi",
+          "/opt/homebrew/Cellar/glib/2.84.1/include/gio-unix-2.0",
+          "/opt/homebrew/Cellar/glib/2.84.1/include",
+          "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk/usr/include/ffi",
+          "/opt/homebrew/Cellar/glib/2.84.1/include/glib-2.0",
+          "/opt/homebrew/Cellar/glib/2.84.1/lib/glib-2.0/include",
+          "/opt/homebrew/opt/gettext/include",
+          "/opt/homebrew/Cellar/pcre2/10.45/include"
+        ],
+        "defines": [],
+        "compilerPath": "/usr/bin/clang",
+        "cStandard": "c17",
+        "cppStandard": "c++17",
+        "intelliSenseMode": "macos-clang-arm64"
+      }
     ],
     "version": 4
-}
+  }
+  

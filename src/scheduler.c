@@ -6,8 +6,10 @@
 #include "../include/process.h"
 #include "../include/interpreter.h"
 #include "../include/memory.h"
+#include "../include/mutex.h"
+#include "../include/logger.h" 
 
-int schedulerType = 1;
+int schedulerType = 0;
 int rrQuantum = 2;
 int finishedFCFS = 0;
 int finishedRR = 0;
@@ -183,6 +185,7 @@ void runMLFQ() {
 
         if (strcmp(pcb->state, "Ready") == 0 || strcmp(pcb->state, "Running") == 0) {
             int nextLevel = (level == 3) ? 3 : level + 1;
+            setPriority(pcb, nextLevel + 1);
             addToMLFQ(pcb->pid, nextLevel);
             setState(pcb, "Ready");
         }
@@ -192,6 +195,36 @@ void runMLFQ() {
             break;
         }
     }
+}
+
+int getFinishedProcessCount() {
+    switch (schedulerType) {
+        case 1: // FCFS
+            return finishedFCFS;
+        case 2: // Round Robin
+            return finishedRR;
+        case 3: // MLFQ
+            return finishedMLFQ;
+        default:
+            return 0;
+    }
+}
+
+int getTotalProcessCount() {
+    return processCount;
+}
+
+int getCurrentClockCycle() {
+    return clockCycle;
+}
+
+int getCurrentRunningProcess() {
+    for (int i = 0; i < processCount; i++) {
+        if (strcmp(processList[i].pcb.state, "Running") == 0) {
+            return processList[i].pcb.pid;
+        }
+    }
+    return -1; 
 }
 
 void startScheduler() {
@@ -209,4 +242,35 @@ void startScheduler() {
         default:
             printf("Unknown scheduler type.\n");
     }
+}
+
+void advanceScheduler() {
+    loadArrivedProcesses();
+
+    switch (schedulerType) {
+        case 1: // FCFS
+            runFCFS();
+            break;
+        case 2: // Round Robin
+            runRR();
+            break;
+        case 3: // MLFQ
+            runMLFQ();
+            break;
+        default:
+            printf("Unknown scheduler type.\n");
+    }
+}
+
+void resetScheduler() {
+    initMemory();
+    initMutexes();
+    front = rear = 0;
+    for (int i = 0; i < 4; i++) {
+        mlfqFront[i] = mlfqRear[i] = 0;
+    }
+    processCount = 0;
+    globalPcbCount = 0;
+    clockCycle = 0;
+    finishedFCFS = finishedRR = finishedMLFQ = 0;
 }

@@ -14,7 +14,7 @@ PCB createProcess(int pid, int priority, const char* filename) {
     PCB pcb;
     pcb.pid = pid;
     strcpy(pcb.state, "Ready");
-    pcb.priority = priority;
+    setPriority(&pcb, priority);
     pcb.programCounter = 0;
 
 
@@ -80,14 +80,35 @@ void printPCB(PCB pcb) {
 }
 
 void setState(PCB *pcb, const char *state) {
+    if (!pcb) return;
     strcpy(pcb->state, state);
     char key[30];
     sprintf(key, "P%d_state", pcb->pid);
     setMemory(key, state);
 }
 
+const char* getState(PCB *pcb) {
+    if (!pcb) {
+        return NULL;
+    }
+    char key[30];
+    sprintf(key, "P%d_state", pcb->pid);
+    const char* state = getMemory(key);
+    return state ? state : pcb->state;
+    //return pcb->state;
+}
+
 void setPriority(PCB *pcb, int priority) {
     pcb->priority = priority;
+}
+
+int getPriority(int pid){
+    for (int i = 0; i < processCount; i++) {
+        if (processList[i].pid == pid) {
+            return processList[i].pcb.priority;
+        }
+    }
+    return -1; // Return -1 if the process is not found
 }
 
 void incrementPC(PCB *pcb) {

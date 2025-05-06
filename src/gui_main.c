@@ -8,60 +8,58 @@
 #include "../include/fileio.h"
 #include "../include/interpreter.h"
 
-// Backend initialization functions
 void initMemory();
 void initMutexes();
 
-// Forward declarations for panel initialization functions
 GtkWidget* init_control_panel(GtkWidget *proc_config_panel);
 GtkWidget* init_process_config_panel();
 GtkWidget* init_process_dashboard();
 GtkWidget* init_memory_viewer();
 GtkWidget* init_log_panel();
+GtkWidget* init_overview_panel();
+void update_overview_panel(GtkWidget *overview_panel);
+void log_message(const char *message);
 
-// Global variables to track application state
 GtkWidget *g_process_treeview;
 GtkWidget *g_log_textview;
 GtkWidget *g_memory_grid;
 gboolean scheduler_running = FALSE;
 guint timeout_id = 0;
 
-void log_message(const char *message) {
-    GtkTextBuffer *buffer;
-    GtkTextIter end;
-    
-    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(g_log_textview));
-    gtk_text_buffer_get_end_iter(buffer, &end);
-    
-    // Add newline if buffer is not empty
-    if (gtk_text_buffer_get_char_count(buffer) > 0) {
-        gtk_text_buffer_insert(buffer, &end, "\n", -1);
+gboolean check_processes_loaded() {
+    if (processCount <= 0) {
+        GtkWidget *dialog = gtk_message_dialog_new(NULL,
+            GTK_DIALOG_MODAL,
+            GTK_MESSAGE_WARNING,
+            GTK_BUTTONS_OK,
+            "No processes loaded. Please add processes before starting the scheduler.");
+        
+        gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+        
+        log_message("Warning: Attempted to start scheduler with no processes");
+        return FALSE;
     }
-    
-    gtk_text_buffer_insert(buffer, &end, message, -1);
-    
-    // Scroll to bottom
-    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(g_log_textview), &end, 0.0, FALSE, 0.0, 0.0);
+    return TRUE;
 }
 
 void update_process_dashboard() {
     GtkListStore *store;
     GtkTreeIter iter;
     
-    // Get the list store from treeview
     store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(g_process_treeview)));
     gtk_list_store_clear(store);
     
-    // Update with current processes
     for (int i = 0; i < processCount; i++) {
         ProcessInfo *info = &processList[i];
         PCB *pcb = &info->pcb;
         
         if (info->loaded) {
+            const char *state = getState(pcb);
             gtk_list_store_append(store, &iter);
             gtk_list_store_set(store, &iter,
                               0, pcb->pid,
-                              1, pcb->state,
+                              1, state ? state : "Unknown",
                               2, pcb->priority,
                               3, pcb->programCounter,
                               4, pcb->memLowerBound,
@@ -73,17 +71,15 @@ void update_process_dashboard() {
 
 void update_memory_view() {
     GtkWidget *value_label;
-    GtkWidget *key_label;
-    char buffer[128];
-    
+    char buffer[256];
+
     for (int i = 0; i < MEMORY_SIZE; i++) {
-        // Get the value label from grid
-        GtkWidget *child = gtk_grid_get_child_at(GTK_GRID(g_memory_grid), 
-                                               (i % 2) * 2 + 1, // column
-                                               (i / 2) + 1);    // row
-        
+        int col = i / 30; // 30 rows per column
+        int row = i % 30;
+
+        GtkWidget *child = gtk_grid_get_child_at(GTK_GRID(g_memory_grid), col * 2 + 1, row);
         if (child && memory[i].key[0] != '\0') {
-            sprintf(buffer, "%.10s: %.10s", memory[i].key, memory[i].value);
+            sprintf(buffer, "%.30s: %.30s", memory[i].key, memory[i].value);
             gtk_label_set_text(GTK_LABEL(child), buffer);
         } else if (child) {
             gtk_label_set_text(GTK_LABEL(child), "(empty)");
@@ -91,24 +87,200 @@ void update_memory_view() {
     }
 }
 
-// Callback for when scheduler type changes
 void on_scheduler_type_changed(GtkComboBox *combo_box, gpointer user_data) {
     GtkWidget *quantum_label = GTK_WIDGET(user_data);
     GtkWidget *quantum_spin = GTK_WIDGET(g_object_get_data(G_OBJECT(quantum_label), "quantum_spin"));
-    
+    GtkWidget *overview_panel = GTK_WIDGET(g_object_get_data(G_OBJECT(combo_box), "overview_panel"));
+
     int active = gtk_combo_box_get_active(combo_box);
-    
-    // Show/hide quantum UI based on scheduler type
-    if (active == 1) { // Round Robin
+
+    if (active == 2) { // Round Robin
         gtk_widget_set_visible(quantum_label, TRUE);
         gtk_widget_set_visible(quantum_spin, TRUE);
     } else {
         gtk_widget_set_visible(quantum_label, FALSE);
         gtk_widget_set_visible(quantum_spin, FALSE);
     }
+
+    // Update scheduler type in the backend
+    schedulerType = active; // 0 = None, 1 = FCFS, 2 = RR, 3 = MLFQ
+
+    // Update the System Overview
+    update_overview_panel(overview_panel);
 }
 
-// Callback for when add process button is clicked
+GtkWidget* init_queue_section() {
+    GtkWidget *frame, *vbox, *label;
+
+    // Create frame with title
+    frame = gtk_frame_new("Queue Section");
+    gtk_widget_set_size_request(frame, 300, 150);
+
+    // Create vertical box layout
+    vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+    gtk_container_add(GTK_CONTAINER(frame), vbox);
+
+    // Ready Queue
+    label = gtk_label_new("Ready Queue: ");
+    gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 5);
+    g_object_set_data(G_OBJECT(frame), "ready_queue_label", label);
+
+    // Running Process
+    label = gtk_label_new("Running Process: None");
+    gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 5);
+    g_object_set_data(G_OBJECT(frame), "running_process_label", label);
+
+    // Blocking Queue
+    label = gtk_label_new("Blocking Queue: ");
+    gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 5);
+    g_object_set_data(G_OBJECT(frame), "blocking_queue_label", label);
+
+    return frame;
+}
+
+GtkWidget* init_resource_management_panel() {
+    GtkWidget *frame, *vbox, *label;
+
+    // Create frame with title
+    frame = gtk_frame_new("Resource Management Panel");
+    gtk_widget_set_size_request(frame, 300, 150);
+
+    // Create vertical box layout
+    vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+    gtk_container_add(GTK_CONTAINER(frame), vbox);
+
+    // Mutex Status
+    label = gtk_label_new("Mutex Status:\nuserInput: -1\nuserOutput: -1\nfile: -1");
+    gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 5);
+    g_object_set_data(G_OBJECT(frame), "mutex_status_label", label);
+
+    // Blocked Queues
+    label = gtk_label_new("Blocked Queues:\nuserInput: \nuserOutput: \nfile: ");
+    gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 5);
+    g_object_set_data(G_OBJECT(frame), "blocked_queue_label", label);
+
+    return frame;
+}
+
+void update_queue_section(GtkWidget *queue_panel) {
+    GtkWidget *ready_queue_label = GTK_WIDGET(g_object_get_data(G_OBJECT(queue_panel), "ready_queue_label"));
+    GtkWidget *running_process_label = GTK_WIDGET(g_object_get_data(G_OBJECT(queue_panel), "running_process_label"));
+    GtkWidget *blocking_queue_label = GTK_WIDGET(g_object_get_data(G_OBJECT(queue_panel), "blocking_queue_label"));
+
+    char buffer[512];
+
+    // Update Ready Queue
+    sprintf(buffer, "Ready Queue:\n");
+    for (int i = 0; i < processCount; i++) {
+        PCB *pcb = &processList[i].pcb;
+        const char *state = getState(pcb);
+        if (state && strcmp(state, "Ready") == 0) {
+            char temp[128];
+            const char* instruction = getCurrentInstruction(pcb);
+            sprintf(temp, "PID %d | Next Instruction: %s\n", 
+                    pcb->pid, instruction ? instruction : "No instruction");
+            strcat(buffer, temp);
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(ready_queue_label), buffer);
+
+    // Update Running Process
+    sprintf(buffer, "Running Process: None");
+    for (int i = 0; i < processCount; i++) {
+        PCB *pcb = &processList[i].pcb;
+        const char *state = getState(pcb);
+        if (state && strcmp(state, "Running") == 0) {
+            const char* instruction = getCurrentInstruction(pcb);
+            sprintf(buffer, "Running Process:\nPID %d | Executing: %s", 
+                    pcb->pid, instruction ? instruction : "No instruction");
+            break;
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(running_process_label), buffer);
+
+    // Update Blocking Queue
+    sprintf(buffer, "Blocking Queue:\n");
+    for (int i = 0; i < processCount; i++) {
+        PCB *pcb = &processList[i].pcb;
+        const char *state = getState(pcb);
+        if (state && strcmp(state, "Blocked") == 0) {
+            char temp[128];
+            sprintf(temp, "PID %d\n", pcb->pid);
+            strcat(buffer, temp);
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(blocking_queue_label), buffer);
+}
+
+void update_resource_management_panel(GtkWidget *resource_panel) {
+    char buffer[1024];
+    GtkWidget *mutex_status_label = GTK_WIDGET(g_object_get_data(G_OBJECT(resource_panel), "mutex_status_label"));
+    
+    // Update Mutex Status with detailed information
+    sprintf(buffer, "Mutex Status:\n");
+    
+    // userInput mutex
+    strcat(buffer, "userInput: ");
+    if (userInput != -1) {
+        char temp[128];
+        sprintf(temp, "Held by P%d", userInput);
+        strcat(buffer, temp);
+        if (inputCount > 0) {
+            strcat(buffer, "\n  Waiting processes: ");
+            for (int i = 0; i < inputCount; i++) {
+                sprintf(temp, "P%d(priority:%d) ", 
+                        userInputQueue[i], 
+                        getPriority(userInputQueue[i]));
+                strcat(buffer, temp);
+            }
+        }
+    } else {
+        strcat(buffer, "Available");
+    }
+    
+    // userOutput mutex
+    strcat(buffer, "\n\nuserOutput: ");
+    if (userOutput != -1) {
+        char temp[128];
+        sprintf(temp, "Held by P%d", userOutput);
+        strcat(buffer, temp);
+        if (outputCount > 0) {
+            strcat(buffer, "\n  Waiting processes: ");
+            for (int i = 0; i < outputCount; i++) {
+                sprintf(temp, "P%d(priority:%d) ", 
+                        userOutputQueue[i], 
+                        getPriority(userOutputQueue[i]));
+                strcat(buffer, temp);
+            }
+        }
+    } else {
+        strcat(buffer, "Available");
+    }
+    
+    // file mutex
+    strcat(buffer, "\n\nfile: ");
+    if (file != -1) {
+        char temp[128];
+        sprintf(temp, "Held by P%d", file);
+        strcat(buffer, temp);
+        if (fileCount > 0) {
+            strcat(buffer, "\n  Waiting processes: ");
+            for (int i = 0; i < fileCount; i++) {
+                sprintf(temp, "P%d(priority:%d) ", 
+                        fileQueue[i], 
+                        getPriority(fileQueue[i]));
+                strcat(buffer, temp);
+            }
+        }
+    } else {
+        strcat(buffer, "Available");
+    }
+    
+    gtk_label_set_text(GTK_LABEL(mutex_status_label), buffer);
+}
+
 void on_add_process_clicked(GtkButton *button, gpointer user_data) {
     GtkWidget *file_entry = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "file_entry"));
     GtkWidget *arrival_spin = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "arrival_spin"));
@@ -119,7 +291,6 @@ void on_add_process_clicked(GtkButton *button, gpointer user_data) {
     if (strlen(filename) > 0) {
         addProcess(filename, arrival_time);
         
-        // Add to visual process list
         GtkWidget *process_list = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "process_list"));
         char buffer[256];
         sprintf(buffer, "PID %d: %s (arrival: %d)", processCount, filename, arrival_time);
@@ -135,172 +306,103 @@ void on_add_process_clicked(GtkButton *button, gpointer user_data) {
     }
 }
 
-// Function to perform one scheduler step
 gboolean scheduler_step(gpointer user_data) {
-    // Check if we should stop
+    GtkWidget *window = GTK_WIDGET(user_data);
+    if (!GTK_IS_WIDGET(window)) {
+        g_warning("Invalid window reference in scheduler");
+        return FALSE;
+    }
+
     if (!scheduler_running) {
         timeout_id = 0;
-        return FALSE; // stop the timer
+        return FALSE;
     }
-    
-    // Load arrived processes
-    for (int i = 0; i < processCount; i++) {
-        if (processList[i].arrivalTime <= clockCycle && !processList[i].loaded) {
-            processList[i].loaded = 1;
-            PCB *pcb = &processList[i].pcb;
-            
-            if (schedulerType == 3) {
-                setState(pcb, "Ready");
-                addToMLFQ(pcb->pid, 0);
-            } else {
-                setState(pcb, "Ready");
-                addToReadyQueue(pcb->pid);
-            }
-            
-            char log_msg[100];
-            sprintf(log_msg, "Process %d loaded at clock cycle %d", pcb->pid, clockCycle);
-            log_message(log_msg);
-        }
-    }
-    
-    // Run one instruction based on scheduler type
-    int pid = -1;
-    
-    if (schedulerType == 1) { // FCFS
-        if (front != rear) {
-            pid = readyQueue[front++];
-        }
-    } else if (schedulerType == 2) { // RR
-        // Simple RR implementation for GUI
-        if (front != rear) {
-            pid = readyQueue[front++];
-            if (pid != -1) {
-                // Re-add to end of queue if not finished after execution
-                PCB *pcb = findPCBByPid(pid);
-                if (pcb && strcmp(pcb->state, "Ready") == 0) {
-                    readyQueue[rear++] = pid;
-                }
-            }
-        }
-    } else { // MLFQ
-        // Simplified MLFQ for GUI
-        for (int level = 0; level < 4; level++) {
-            if (mlfqFront[level] < mlfqRear[level]) {
-                pid = mlfq[level][mlfqFront[level]++];
-                break;
-            }
-        }
-    }
-    
-    if (pid != -1) {
-        PCB *pcb = findPCBByPid(pid);
-        if (pcb && strcmp(pcb->state, "Ready") == 0) {
-            setState(pcb, "Running");
-            
-            char log_msg[100];
-            sprintf(log_msg, "Clock Cycle %d: Executing process %d instruction %d", 
-                  clockCycle, pid, pcb->programCounter);
-            log_message(log_msg);
-            
-            int finished = executeInstruction(pcb, clockCycle);
-            
-            // Handle process post-execution
-            if (strcmp(pcb->state, "Running") == 0) {
-                setState(pcb, "Ready");
-            }
-        }
-    } else {
-        char log_msg[100];
-        sprintf(log_msg, "Clock Cycle %d: No process to run", clockCycle);
-        log_message(log_msg);
-    }
-    
-    clockCycle++;
-    
-    // Update UI
+
+    // Check if all processes are finished
+    // if (getFinishedProcessCount() == getTotalProcessCount()) {
+    //     log_message("All processes finished execution");
+    //     scheduler_running = FALSE;
+    //     timeout_id = 0;
+    //     return FALSE;
+    // }
+
+    // Advance the scheduler
+    advanceScheduler();
+
+    // Update all panels
+    GtkWidget *overview_panel = GTK_WIDGET(g_object_get_data(G_OBJECT(window), "overview_panel"));
+    GtkWidget *queue_panel = GTK_WIDGET(g_object_get_data(G_OBJECT(window), "queue_panel"));
+    GtkWidget *resource_panel = GTK_WIDGET(g_object_get_data(G_OBJECT(window), "resource_panel"));
+
+    if (overview_panel) update_overview_panel(overview_panel);
+    if (queue_panel) update_queue_section(queue_panel);
+    if (resource_panel) update_resource_management_panel(resource_panel);
+
     update_process_dashboard();
     update_memory_view();
-    
-    // Check if all processes are finished
-    int all_finished = 1;
-    for (int i = 0; i < processCount; i++) {
-        if (strcmp(processList[i].pcb.state, "Finished") != 0) {
-            all_finished = 0;
-            break;
-        }
-    }
-    
-    if (all_finished && processCount > 0) {
-        log_message("All processes finished execution");
-        scheduler_running = FALSE;
-        return FALSE; // stop timer
-    }
-    
-    return TRUE; // continue timer
+
+    // Force immediate update
+    while (gtk_events_pending())
+        gtk_main_iteration();
+
+    return TRUE;
 }
 
-// Callback for start button
 void on_start_clicked(GtkButton *button, gpointer user_data) {
+    if (!check_processes_loaded()) return;
+
     if (!scheduler_running) {
+        GtkWidget *window = gtk_widget_get_toplevel(GTK_WIDGET(button));
         GtkWidget *combo_box = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "combo_box"));
         GtkWidget *quantum_spin = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "quantum_spin"));
-        
+
         schedulerType = gtk_combo_box_get_active(GTK_COMBO_BOX(combo_box)) + 1;
         rrQuantum = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(quantum_spin));
-        
+
+        // Initialize and run first cycle only
+        initScheduler(schedulerType, rrQuantum);
         sortProcessesByArrival();
-        
-        log_message("Starting scheduler...");
         scheduler_running = TRUE;
-        
-        // Run scheduler at 100ms intervals
-        if (timeout_id == 0) {
-            timeout_id = g_timeout_add(100, scheduler_step, NULL);
-        }
+        scheduler_step(window);
+        scheduler_running = FALSE;
     }
 }
 
-// Callback for pause button
 void on_pause_clicked(GtkButton *button, gpointer user_data) {
     scheduler_running = FALSE;
     log_message("Scheduler paused");
 }
 
-// Callback for reset button
 void on_reset_clicked(GtkButton *button, gpointer user_data) {
     scheduler_running = FALSE;
     if (timeout_id > 0) {
         g_source_remove(timeout_id);
         timeout_id = 0;
     }
-    
-    // Reset simulator state
-    initMemory();
-    initMutexes();
-    
-    // Clear process list
-    processCount = 0;
-    globalPcbCount = 0;
-    
-    // Reset UI
+
+    resetScheduler();
+
     GtkListStore *store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(g_process_treeview)));
     gtk_list_store_clear(store);
-    
+
     GtkWidget *process_list = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "process_list"));
-    if (process_list) {  // Add this NULL check
+    if (process_list) {
         GtkListBox *list_box = GTK_LIST_BOX(process_list);
         GList *children, *iter;
-        
+
         children = gtk_container_get_children(GTK_CONTAINER(list_box));
         for (iter = children; iter != NULL; iter = g_list_next(iter))
             gtk_widget_destroy(GTK_WIDGET(iter->data));
         g_list_free(children);
     }
-    
+
     update_memory_view();
-    
+
+    // Clear system log
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(g_log_textview));
+    gtk_text_buffer_set_text(buffer, "", -1);
+
     log_message("System reset");
-    clockCycle = 0;
 }
 
 static void activate(GtkApplication *app, gpointer user_data) {
@@ -308,10 +410,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *main_vbox;
     GtkWidget *control_panel;
     GtkWidget *content_hbox;
+    GtkWidget *top_hbox; // New horizontal box for System Overview, Queue Section, and Resource Management Panel
     GtkWidget *left_panel;
     GtkWidget *center_panel;
     GtkWidget *right_panel;
     GtkWidget *log_panel;
+    GtkWidget *overview_panel;
+    GtkWidget *queue_panel;
+    GtkWidget *resource_panel;
 
     // Initialize backend
     initMemory();
@@ -321,6 +427,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Scheduler Simulator");
     gtk_window_set_default_size(GTK_WINDOW(window), 1200, 700);
+
+    gtk_window_fullscreen(GTK_WINDOW(window));
 
     // Main vertical container
     main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
@@ -335,6 +443,22 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Then create control panel (which needs left_panel)
     control_panel = init_control_panel(left_panel);
     gtk_box_pack_start(GTK_BOX(main_vbox), control_panel, FALSE, FALSE, 5);
+
+    // Create a horizontal box for System Overview, Queue Section, and Resource Management Panel
+    top_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_pack_start(GTK_BOX(main_vbox), top_hbox, FALSE, FALSE, 5);
+
+    // Add the Overview Section
+    overview_panel = init_overview_panel();
+    gtk_box_pack_start(GTK_BOX(top_hbox), overview_panel, TRUE, TRUE, 5);
+
+    // Add the Queue Section
+    queue_panel = init_queue_section();
+    gtk_box_pack_start(GTK_BOX(top_hbox), queue_panel, TRUE, TRUE, 5);
+
+    // Add the Resource Management Panel
+    resource_panel = init_resource_management_panel();
+    gtk_box_pack_start(GTK_BOX(top_hbox), resource_panel, TRUE, TRUE, 5);
     
     // Now add the content box to main layout
     gtk_box_pack_start(GTK_BOX(main_vbox), content_hbox, TRUE, TRUE, 0);
@@ -356,12 +480,45 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     // Show the main window and all its children
     gtk_widget_show_all(window);
+
+    // Store references for updates
+    g_object_set_data(G_OBJECT(window), "overview_panel", overview_panel);
+    g_object_set_data(G_OBJECT(window), "queue_panel", queue_panel);
+    g_object_set_data(G_OBJECT(window), "resource_panel", resource_panel);
+    // Modify the size requests for top panels
+    gtk_widget_set_size_request(overview_panel, 300, 100); // Make System Overview shorter
+    gtk_widget_set_size_request(queue_panel, 300, 100); // Make Queue Section shorter
+    gtk_widget_set_size_request(resource_panel, 300, 100); // Make Resource Panel shorter
+
+    // Make the log panel bigger
+    gtk_widget_set_size_request(log_panel, -1, 300); // Increase height of log panel
 }
 
-// Initialize the scheduler control panel
+void on_step_execution_clicked(GtkButton *button, gpointer user_data) {
+    if (!check_processes_loaded()) return;
+
+    GtkWidget *window = gtk_widget_get_toplevel(GTK_WIDGET(button));
+    scheduler_running = TRUE;
+    scheduler_step(window);
+    scheduler_running = FALSE;
+}
+
+void on_auto_execution_clicked(GtkButton *button, gpointer user_data) {
+    if (!check_processes_loaded()) {
+        return;
+    }
+
+    GtkWidget *window = gtk_widget_get_toplevel(GTK_WIDGET(button));
+    scheduler_running = TRUE;
+    if (timeout_id == 0) {
+        timeout_id = g_timeout_add(500, scheduler_step, window); // 500ms delay between steps
+    }
+}
+
 GtkWidget* init_control_panel(GtkWidget *left_panel) {
     GtkWidget *frame, *hbox, *label, *combo_box, *quantum_label, *quantum_spin;
     GtkWidget *button_box, *start_button, *pause_button, *reset_button;
+    GtkWidget *step_button, *auto_button; // Add Step and Auto buttons
     
     // Create frame with title
     frame = gtk_frame_new("Scheduler Control Panel");
@@ -376,10 +533,11 @@ GtkWidget* init_control_panel(GtkWidget *left_panel) {
     gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 5);
     
     combo_box = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_box), "Choose your scheduler");
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_box), "FCFS");
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_box), "Round Robin");
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_box), "MLFQ");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(combo_box), 0);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo_box), 0); // Default to "Choose your scheduler"
     gtk_box_pack_start(GTK_BOX(hbox), combo_box, FALSE, FALSE, 5);
     
     // Quantum setting (initially hidden)
@@ -387,8 +545,12 @@ GtkWidget* init_control_panel(GtkWidget *left_panel) {
     gtk_box_pack_start(GTK_BOX(hbox), quantum_label, FALSE, FALSE, 5);
     
     quantum_spin = gtk_spin_button_new_with_range(1, 100, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(quantum_spin), 20);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(quantum_spin), 1);
     gtk_box_pack_start(GTK_BOX(hbox), quantum_spin, FALSE, FALSE, 5);
+    
+    // Initially hide quantum controls
+    gtk_widget_set_visible(quantum_label, FALSE);
+    gtk_widget_set_visible(quantum_spin, FALSE);
     
     // Control buttons
     button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
@@ -397,10 +559,20 @@ GtkWidget* init_control_panel(GtkWidget *left_panel) {
     start_button = gtk_button_new_with_label("Start");
     pause_button = gtk_button_new_with_label("Pause");
     reset_button = gtk_button_new_with_label("Reset");
+    step_button = gtk_button_new_with_label("Step"); // Step Execution Button
+    auto_button = gtk_button_new_with_label("Auto"); // Auto Execution Button
     
     gtk_box_pack_start(GTK_BOX(button_box), start_button, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(button_box), pause_button, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(button_box), reset_button, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(button_box), step_button, FALSE, FALSE, 5); // Add Step Button
+    gtk_box_pack_start(GTK_BOX(button_box), auto_button, FALSE, FALSE, 5); // Add Auto Button
+
+     // Store window reference
+     GtkWidget *window = gtk_widget_get_toplevel(left_panel);
+     g_object_set_data(G_OBJECT(start_button), "window", window);
+     g_object_set_data(G_OBJECT(step_button), "window", window);
+     g_object_set_data(G_OBJECT(auto_button), "window", window);
 
     // Connect signals
     g_signal_connect(combo_box, "changed", G_CALLBACK(on_scheduler_type_changed), quantum_label);
@@ -412,18 +584,15 @@ GtkWidget* init_control_panel(GtkWidget *left_panel) {
     
     g_signal_connect(pause_button, "clicked", G_CALLBACK(on_pause_clicked), NULL);
     g_signal_connect(reset_button, "clicked", G_CALLBACK(on_reset_clicked), left_panel);
+    g_signal_connect(step_button, "clicked", G_CALLBACK(on_step_execution_clicked), NULL); // Connect Step Button
+    g_signal_connect(auto_button, "clicked", G_CALLBACK(on_auto_execution_clicked), NULL); // Connect Auto Button
 
     GtkWidget *proc_list = GTK_WIDGET(g_object_get_data(G_OBJECT(left_panel), "process_list"));
     g_object_set_data(G_OBJECT(reset_button), "process_list", proc_list);
     
-    // Initially hide quantum controls (only for RR)
-    gtk_widget_set_visible(quantum_label, FALSE);
-    gtk_widget_set_visible(quantum_spin, FALSE);
-    
     return frame;
 }
 
-// Initialize the process configuration panel
 GtkWidget* init_process_config_panel() {
     GtkWidget *frame, *vbox, *label, *file_entry, *hbox;
     GtkWidget *arrival_label, *arrival_spin, *add_button, *scrolled_window, *process_list;
@@ -438,7 +607,7 @@ GtkWidget* init_process_config_panel() {
     gtk_container_add(GTK_CONTAINER(frame), vbox);
     
     // File path entry
-    label = gtk_label_new("Process File:");
+    label = gtk_label_new("Process File (e.g., programs/Program_1.txt):");
     gtk_widget_set_halign(label, GTK_ALIGN_START);
     gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 0);
     
@@ -483,7 +652,6 @@ GtkWidget* init_process_config_panel() {
     return frame;
 }
 
-// Initialize the process dashboard panel
 GtkWidget* init_process_dashboard() {
     GtkWidget *frame, *scrolled_window, *treeview;
     GtkListStore *store;
@@ -546,98 +714,202 @@ GtkWidget* init_process_dashboard() {
     return frame;
 }
 
-// Initialize the memory viewer panel
 GtkWidget* init_memory_viewer() {
     GtkWidget *frame, *scrolled_window, *grid;
     GtkWidget *label;
     char buffer[16];
-    int i, row, col;
-    
-    // Create frame with title
+    int rows = 30; // Number of rows per column
+
     frame = gtk_frame_new("Memory Viewer");
-    gtk_widget_set_size_request(frame, 250, -1);
+    gtk_widget_set_size_request(frame, 500, 400);
+
+    scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(frame), scrolled_window);
+
+    grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 5);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), 10);
+
+    // Create vertical layout
+    for (int i = 0; i < MEMORY_SIZE; i++) {
+        int col = i / rows;    // Column index
+        int row = i % rows;    // Row index
+
+        // Address label
+        sprintf(buffer, "%03d:", i);
+        label = gtk_label_new(buffer);
+        gtk_widget_set_halign(label, GTK_ALIGN_END);
+        gtk_grid_attach(GTK_GRID(grid), label, col * 2, row, 1, 1);
+
+        // Value label
+        label = gtk_label_new("(empty)");
+        gtk_widget_set_halign(label, GTK_ALIGN_START);
+        gtk_grid_attach(GTK_GRID(grid), label, col * 2 + 1, row, 1, 1);
+    }
+
+    gtk_container_add(GTK_CONTAINER(scrolled_window), grid);
+    g_memory_grid = grid;
+    return frame;
+}
+
+GtkWidget* init_log_panel() {
+    GtkWidget *frame, *scrolled_window, *textview;
     
-    // Create a scrolled window
+    frame = gtk_frame_new("System Log");
+    
     scrolled_window = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(frame), scrolled_window);
+    textview = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(textview), GTK_WRAP_WORD_CHAR);
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(textview), FALSE);
+    gtk_container_add(GTK_CONTAINER(scrolled_window), textview);
     
-    // Create grid for memory cells (4 columns x 15 rows = 60 cells)
-    grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 2);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 5);
-    gtk_container_set_border_width(GTK_CONTAINER(grid), 10);
-    
-    // Add header row
-    label = gtk_label_new("Addr");
-    gtk_grid_attach(GTK_GRID(grid), label, 0, 0, 1, 1);
-    
-    label = gtk_label_new("Value");
-    gtk_grid_attach(GTK_GRID(grid), label, 1, 0, 1, 1);
-    
-    label = gtk_label_new("Addr");
-    gtk_grid_attach(GTK_GRID(grid), label, 2, 0, 1, 1);
-    
-    label = gtk_label_new("Value");
-    gtk_grid_attach(GTK_GRID(grid), label, 3, 0, 1, 1);
-    
-    // Create 60 memory cells
-    for (i = 0; i < 60; i++) {
-        row = (i / 2) + 1;  // +1 because of header row
-        col = (i % 2) * 2;  // 0 or 2
-        
-        // Address label
-        sprintf(buffer, "%02d:", i);
-        label = gtk_label_new(buffer);
-        gtk_widget_set_halign(label, GTK_ALIGN_END);
-        gtk_grid_attach(GTK_GRID(grid), label, col, row, 1, 1);
-        
-        // Value label (initially empty)
-        label = gtk_label_new("0");
-        gtk_widget_set_halign(label, GTK_ALIGN_START);
-        gtk_grid_attach(GTK_GRID(grid), label, col + 1, row, 1, 1);
-    }
-    
-    gtk_container_add(GTK_CONTAINER(scrolled_window), grid);
-
-    // Store global reference
-    g_memory_grid = grid;
+    g_log_textview = textview;
     
     return frame;
 }
 
-// Initialize the log panel
-GtkWidget* init_log_panel() {
-    GtkWidget *frame, *scrolled_window, *text_view;
+void log_message(const char *message) {
     GtkTextBuffer *buffer;
-    
-    // Create frame with title
-    frame = gtk_frame_new("System Log");
-    
-    // Create a scrolled window
-    scrolled_window = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
-                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(scrolled_window, -1, 150);
-    gtk_container_add(GTK_CONTAINER(frame), scrolled_window);
-    
-    // Create text view for logs
-    text_view = gtk_text_view_new();
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), FALSE);
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(text_view), GTK_WRAP_WORD_CHAR);
-    
-    // Set initial text
-    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
-    gtk_text_buffer_set_text(buffer, "System initialized. Ready for scheduling.", -1);
-    
-    // Add text view to scrolled window
-    gtk_container_add(GTK_CONTAINER(scrolled_window), text_view);
+    GtkTextIter end;
 
-    // Store global reference
-    g_log_textview = text_view;
+    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(g_log_textview));
+    gtk_text_buffer_get_end_iter(buffer, &end);
+
+    gtk_text_buffer_insert(buffer, &end, message, -1);
+    gtk_text_buffer_insert(buffer, &end, "\n", -1);
+
+    while (gtk_events_pending())
+        gtk_main_iteration();
+}
+
+GtkWidget* init_overview_panel() {
+    GtkWidget *frame, *hbox, *label;
+    char buffer[64];
+
+    frame = gtk_frame_new("System Overview");
+    gtk_widget_set_size_request(frame, 300, 100);
+
+    // Create horizontal box layout
+    hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 20);
+    gtk_container_set_border_width(GTK_CONTAINER(hbox), 10);
+    gtk_container_add(GTK_CONTAINER(frame), hbox);
+
+    // Total Processes
+    GtkWidget *proc_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_pack_start(GTK_BOX(hbox), proc_box, TRUE, TRUE, 0);
     
+    label = gtk_label_new("Total Processes:");
+    gtk_box_pack_start(GTK_BOX(proc_box), label, FALSE, FALSE, 0);
+    
+    sprintf(buffer, "%d", processCount);
+    GtkWidget *process_count_label = gtk_label_new(buffer);
+    gtk_box_pack_start(GTK_BOX(proc_box), process_count_label, FALSE, FALSE, 0);
+
+    // Clock Cycle
+    GtkWidget *clock_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_pack_start(GTK_BOX(hbox), clock_box, TRUE, TRUE, 0);
+    
+    label = gtk_label_new("Clock Cycle:");
+    gtk_box_pack_start(GTK_BOX(clock_box), label, FALSE, FALSE, 0);
+    
+    sprintf(buffer, "%d", clockCycle);
+    GtkWidget *clock_cycle_label = gtk_label_new(buffer);
+    gtk_box_pack_start(GTK_BOX(clock_box), clock_cycle_label, FALSE, FALSE, 0);
+
+    // Scheduler
+    GtkWidget *sched_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_pack_start(GTK_BOX(hbox), sched_box, TRUE, TRUE, 0);
+    
+    label = gtk_label_new("Scheduler:");
+    gtk_box_pack_start(GTK_BOX(sched_box), label, FALSE, FALSE, 0);
+    
+    const char *scheduler_name = "None";
+    GtkWidget *scheduler_label = gtk_label_new(scheduler_name);
+    gtk_box_pack_start(GTK_BOX(sched_box), scheduler_label, FALSE, FALSE, 0);
+
+    // Store references for updates
+    g_object_set_data(G_OBJECT(frame), "process_count_label", process_count_label);
+    g_object_set_data(G_OBJECT(frame), "clock_cycle_label", clock_cycle_label);
+    g_object_set_data(G_OBJECT(frame), "scheduler_label", scheduler_label);
+
     return frame;
+}
+
+void update_overview_panel(GtkWidget *overview_panel) {
+    if (!overview_panel) {
+        g_warning("overview_panel is NULL");
+        return;
+    }
+
+    char buffer[64];
+    GtkWidget *process_count_label = GTK_WIDGET(g_object_get_data(G_OBJECT(overview_panel), "process_count_label"));
+    GtkWidget *clock_cycle_label = GTK_WIDGET(g_object_get_data(G_OBJECT(overview_panel), "clock_cycle_label"));
+    GtkWidget *scheduler_label = GTK_WIDGET(g_object_get_data(G_OBJECT(overview_panel), "scheduler_label"));
+
+    if (!process_count_label || !clock_cycle_label || !scheduler_label) {
+        g_warning("One or more labels are NULL in overview panel");
+        return;
+    }
+
+    sprintf(buffer, "%d", processCount);
+    gtk_label_set_text(GTK_LABEL(process_count_label), buffer);
+
+    sprintf(buffer, "%d", clockCycle);
+    gtk_label_set_text(GTK_LABEL(clock_cycle_label), buffer);
+
+    const char *scheduler_name = "None";
+    if (schedulerType == 1) scheduler_name = "FCFS";
+    else if (schedulerType == 2) scheduler_name = "Round Robin";
+    else if (schedulerType == 3) scheduler_name = "MLFQ";
+    
+    gtk_label_set_text(GTK_LABEL(scheduler_label), scheduler_name);
+}
+
+void handle_user_input(PCB *pcb, const char *var) {
+    GtkWidget *dialog, *content_area, *entry, *label;
+    char prompt[256];
+    
+    // Create detailed log message
+    sprintf(prompt, "[Process %d] Waiting for user input: Please enter value for variable '%s'", pcb->pid, var);
+    log_message(prompt);
+    
+    dialog = gtk_dialog_new_with_buttons("Input Required",
+                                       NULL,
+                                       GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                       "_OK",
+                                       GTK_RESPONSE_ACCEPT,
+                                       NULL);
+
+    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    
+    // Add prompt label
+    label = gtk_label_new(prompt);
+    gtk_container_add(GTK_CONTAINER(content_area), label);
+    
+    entry = gtk_entry_new();
+    gtk_container_add(GTK_CONTAINER(content_area), entry);
+    gtk_widget_show_all(dialog);
+
+    gint result = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (result == GTK_RESPONSE_ACCEPT) {
+        const char *input = gtk_entry_get_text(GTK_ENTRY(entry));
+        char key[30];
+        sprintf(key, "P%d_%s", pcb->pid, var);
+        
+        // Log the input received
+        char input_msg[256];
+        sprintf(input_msg, "[Process %d] Received input for variable '%s': %s", pcb->pid, var, input);
+        log_message(input_msg);
+        
+        setMemory(key, input);
+    }
+    gtk_widget_destroy(dialog);
 }
 
 int main(int argc, char **argv) {

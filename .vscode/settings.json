@@ -8,7 +8,8 @@
         "gui_log.h": "c",
         "gui_memory.h": "c",
         "gui_process.h": "c",
-        "gui_mutex.h": "c"
+        "gui_mutex.h": "c",
+        "mutex.h": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }

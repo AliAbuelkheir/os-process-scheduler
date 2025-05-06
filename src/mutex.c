@@ -42,6 +42,10 @@ int semWait(PCB* pcb, const char* resource) {
             userInput = pcb->pid;
             return 1;
         }
+        PCB* holder = findPCBByPid(userInput);
+        if (holder && pcb->priority < holder->priority) {
+            setPriority(holder, pcb->priority);  // Inherit priority
+        }
         enqueuemutex(userInputQueue, &inputCount, pcb->pid);
         setState(pcb, "Blocked");
         return 0;
@@ -124,8 +128,9 @@ void unblockAndReady(int* resource, int queue[], int* count, const char* resourc
 
         PCB* pcb = findPCBByPid(nextPid);
         if (pcb != NULL) {
+            int originalPriority = pcb->priority;
             setState(pcb, "Ready");
-
+            setPriority(pcb, originalPriority);
             if (strcmp(resourceName, "userInput") == 0) {
                 userInput = nextPid;
             } else if (strcmp(resourceName, "userOutput") == 0) {

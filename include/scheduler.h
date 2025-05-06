@@ -5,6 +5,13 @@ void initScheduler(int type, int quantum);
 void addToReadyQueue(int pid);
 void addToMLFQ(int pid, int level);
 void startScheduler();
+int getFinishedProcessCount();
+int getTotalProcessCount();
+int getCurrentClockCycle();
+int getCurrentRunningProcess();
+void advanceScheduler();
+void resetScheduler();
+void loadArrivedProcesses();
 
 extern int schedulerType;
 extern int rrQuantum;

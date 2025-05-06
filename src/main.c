@@ -46,6 +46,7 @@ int main() {
 
     sortProcessesByArrival();
     startScheduler();
+    printMemory();
 
     return 0;
 }

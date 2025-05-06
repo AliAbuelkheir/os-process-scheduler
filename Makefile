@@ -9,7 +9,7 @@ GUI_TARGET = gui
 SRC_DIR = src
 COMMON_SRCS = $(SRC_DIR)/memory.c $(SRC_DIR)/process.c \
               $(SRC_DIR)/fileio.c $(SRC_DIR)/interpreter.c $(SRC_DIR)/mutex.c \
-              $(SRC_DIR)/scheduler.c
+              $(SRC_DIR)/scheduler.c $(SRC_DIR)/logger.c
 
 # Main CLI version
 SRCS = $(SRC_DIR)/main.c $(COMMON_SRCS)

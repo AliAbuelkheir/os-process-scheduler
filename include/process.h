@@ -14,7 +14,9 @@ PCB createProcess(int pid, int priority, const char* filename);
 
 void printPCB(PCB pcb);
 void setState(PCB *pcb, const char *state);
+const char* getState(PCB *pcb);
 void setPriority(PCB *pcb, int priority);
+int getPriority(int pid);
 void incrementPC(PCB *pcb);
 PCB* findPCBByPid(int pid);
 
