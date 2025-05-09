@@ -12,7 +12,6 @@ void initMemory() {
 }
 
 int setMemory(const char* key, const char* value) {
-    // If key exists, update it
     for (int i = 0; i < MEMORY_SIZE; i++) {
         if (strcmp(memory[i].key, key) == 0) {
             strcpy(memory[i].value, value);
@@ -20,7 +19,6 @@ int setMemory(const char* key, const char* value) {
         }
     }
 
-    // If not found, insert in first empty slot
     for (int i = 0; i < MEMORY_SIZE; i++) {
         if (memory[i].key[0] == '\0') {
             strcpy(memory[i].key, key);

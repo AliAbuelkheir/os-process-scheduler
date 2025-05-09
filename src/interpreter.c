@@ -6,7 +6,7 @@
 #include "../include/process.h"
 #include "../include/fileio.h"
 #include "../include/mutex.h"
-#include "../include/logger.h"
+#include "../include/gui_main.h"
 
 static InputHandler inputHandlerFunc = NULL;
 
@@ -21,7 +21,6 @@ int executeInstruction(PCB *pcb, int clockCycle) {
     if (instruction == NULL || strcmp(instruction, "") == 0) {
         setState(pcb, "Finished");
         printf("Process %d finished execution.\n", pcb->pid);
-        log_message("Process finished execution.");
         return 1;
     }
     char cmd[20], arg1[50], arg2[50], arg3[50];
@@ -47,26 +46,23 @@ int executeInstruction(PCB *pcb, int clockCycle) {
         int acquired = semWait(pcb, arg1);
         if (!acquired) {
             printf("P%d: Blocked while waiting for %s\n", pcb->pid, arg1);
-            log_message("Process blocked while waiting for resource.");
+            char msg[256];
+            sprintf(msg, "P%d: Blocked while waiting for %s", pcb->pid, arg1);
+            log_message(msg);
             increment = 0;
         }
     } else if (strcmp(cmd, "semSignal") == 0) {
         handleSemSignal(pcb, arg1);
     } else {
         printf("P%d: Unknown instruction '%s'\n", pcb->pid, cmd);
-        log_message("Unknown instruction encountered.");
     }
     if(increment){
         incrementPC(pcb);
     }
-    // printf("Clock Cycle: %d\n", clockCycle);
-    // printf("Running Process: PID %d\n", pcb->pid);
-    // printf("Instruction: %s\n", instruction);
-    // printf("PID %d new PC: %d\n", pcb->pid, pcb->programCounter);
-    char log_msg[256];
-    sprintf(log_msg, "Clock Cycle: %d\nRunning Process: PID %d\nInstruction: %s\nPID %d new PC: %d",
-            clockCycle, pcb->pid, instruction, pcb->pid, pcb->programCounter);
-    log_message(log_msg);
+    printf("Clock Cycle: %d\n", clockCycle);
+    printf("Running Process: PID %d\n", pcb->pid);
+    printf("Instruction: %s\n", instruction);
+    printf("PID %d new PC: %d\n", pcb->pid, pcb->programCounter);
     return 0;
 }
 
@@ -85,16 +81,18 @@ void handleAssign(PCB *pcb, const char* var, const char* value) {
     if (existing != NULL) {
         if (strcmp(value, "input") == 0) {
             if (inputHandlerFunc) {
-                inputHandlerFunc(pcb, var);
-            }else {
-                // Fallback to console input
-                printf("[Process %d] Please enter value for %s: ", pcb->pid, var);
-                scanf("%s", val);
+                inputHandlerFunc(pcb, var);  //GUI input
+                return;
+            } else {
+                printf("No input handler function set!\n");
+                log_message("No input handler function set!");
             }
-        } else {
+        } 
+        else {
             setMemory(key, value);
         }
-    } else {
+    } 
+    else {
         int slotFound = 0;
         for (int i = 1; i <= 3; i++) {
             char slotKey[30];
@@ -102,12 +100,26 @@ void handleAssign(PCB *pcb, const char* var, const char* value) {
             const char* slotValue = getMemory(slotKey);
 
             if (slotValue && strcmp(slotValue, "") == 0) {
-                setMemory(slotKey, var);
+                setMemory(slotKey, var);  
 
                 if (strcmp(value, "input") == 0) {
-                    // Use GUI to get user input
-                    handle_user_input(pcb, var);
-                } else {
+                    // printf("[Process %d] Please enter value for %s: ", pcb->pid, var);
+                    // scanf("%s", val);
+                    // if (info && strcmp(info->sourceFile, "Program_1.txt") == 0 && !isStringNumber(val)) {
+                    //     printf("[Warning] Process %d received non-numeric input for %s: \"%s\". Defaulting to 0.\n", pcb->pid, var, val);
+                    //     strcpy(val, "0");
+                    // }
+                    // sprintf(key, "P%d_%s", pcb->pid, var);
+                    // setMemory(key, val);
+                    if (inputHandlerFunc) {
+                        inputHandlerFunc(pcb, var);  // GUI input
+                        return;  // Don't continue assigning here, wait for user input to arrive
+                    } else {
+                        printf("No input handler function set!\n");
+                        log_message("No input handler function set!");
+                    }
+                } 
+                else {
                     sprintf(key, "P%d_%s", pcb->pid, var);
                     setMemory(key, value);
                 }
@@ -121,70 +133,8 @@ void handleAssign(PCB *pcb, const char* var, const char* value) {
             printf("P%d ERROR: Variable limit exceeded (3 per process)\n", pcb->pid);
         }
     }
+    // incrementPC(pcb);
 }
-
-// void handleAssign(PCB *pcb, const char* var, const char* value) {
-//     char key[30], val[100];
-//     sprintf(key, "P%d_%s", pcb->pid, var);  // e.g., "P1_b"
-//     ProcessInfo* info = NULL;
-//     for (int i = 0; i < processCount; i++) {
-//         if (processList[i].pcb.pid == pcb->pid) {
-//             info = &processList[i];
-//             break;
-//         }
-//     }
-//     const char* existing = getMemory(key);
-
-//     if (existing != NULL) {
-//         if (strcmp(value, "input") == 0) {
-//             printf("[Process %d] Please enter value for %s: ", pcb->pid, var);
-//             scanf("%s", val);
-//             if (info && strcmp(info->sourceFile, "Program_1.txt") == 0 && !isStringNumber(val)) {
-//                 printf("[Warning] Process %d received non-numeric input for %s: \"%s\". Defaulting to 0.\n", pcb->pid, var, val);
-//                 strcpy(val, "0");
-//             }
-//             setMemory(key, val);
-//         } 
-//         else {
-//             setMemory(key, value);
-//         }
-//     } 
-//     else {
-//         int slotFound = 0;
-//         for (int i = 1; i <= 3; i++) {
-//             char slotKey[30];
-//             sprintf(slotKey, "P%d_var%d", pcb->pid, i);
-//             const char* slotValue = getMemory(slotKey);
-
-//             if (slotValue && strcmp(slotValue, "") == 0) {
-//                 setMemory(slotKey, var);  
-
-//                 if (strcmp(value, "input") == 0) {
-//                     printf("[Process %d] Please enter value for %s: ", pcb->pid, var);
-//                     scanf("%s", val);
-//                     if (info && strcmp(info->sourceFile, "Program_1.txt") == 0 && !isStringNumber(val)) {
-//                         printf("[Warning] Process %d received non-numeric input for %s: \"%s\". Defaulting to 0.\n", pcb->pid, var, val);
-//                         strcpy(val, "0");
-//                     }
-//                     sprintf(key, "P%d_%s", pcb->pid, var);
-//                     setMemory(key, val);
-//                 } 
-//                 else {
-//                     sprintf(key, "P%d_%s", pcb->pid, var);
-//                     setMemory(key, value);
-//                 }
-
-//                 slotFound = 1;
-//                 break;
-//             }
-//         }
-
-//         if (slotFound == 0) {
-//             printf("P%d ERROR: Variable limit exceeded (3 per process)\n", pcb->pid);
-//         }
-//     }
-//     // incrementPC(pcb);
-// }
 
 int isStringNumber(const char* str) {
     for (int i = 0; str[i]; i++)
@@ -200,6 +150,9 @@ void handlePrint(PCB *pcb, const char* var) {
     const char* value = getMemory(key);
     if (value != NULL) {
         printf("P%d: %s = %s\n", pcb->pid, var, value);
+        char msg[256];
+        sprintf(msg, "P%d: %s = %s", pcb->pid, var, value);
+        log_message(msg);
     } else {
         printf("P%d: Variable '%s' not found\n", pcb->pid, var);
     }
@@ -217,12 +170,20 @@ void handlePrintFromTo(PCB *pcb, const char* startVar, const char* endVar) {
     if (startValue != NULL && endValue != NULL) {
         int start = atoi(startValue);
         int end = atoi(endValue);
+        char buffer[256] = "";
         for (int i = start; i <= end; i++) {
             printf("%d ", i);
+            char num[10];
+            sprintf(num, "%d ", i);
+            strcat(buffer, num);
         }
         printf("\n");
+        log_message(buffer);
     } else {
         printf("P%d: One or both variables not found\n", pcb->pid);
+        char msg[256];
+        sprintf(msg, "P%d: One or both variables not found\n", pcb->pid);
+        log_message(msg);
     }
     // incrementPC(pcb);
 }
@@ -234,6 +195,9 @@ void handleReadFile(PCB *pcb, const char* var) {
     const char* filename = getMemory(key);
     if (filename == NULL) {
         printf("P%d: Filename variable '%s' not found\n", pcb->pid, var);
+        char msg[256];
+        sprintf(msg, "P%d: Filename variable '%s' not found\n", pcb->pid, var);
+        log_message(msg);
         pcb->programCounter++;
         return;
     }
@@ -241,6 +205,9 @@ void handleReadFile(PCB *pcb, const char* var) {
     FILE* file = fopen(filename, "r");
     if (file == NULL) {
         printf("P%d: Cannot open file '%s' for reading\n", pcb->pid, filename);
+        char msg[256];
+        sprintf(msg, "P%d: Cannot open file '%s' for reading\n", pcb->pid, filename);
+        log_message(msg);
         pcb->programCounter++;
         return;
     }
@@ -251,6 +218,9 @@ void handleReadFile(PCB *pcb, const char* var) {
         setMemory(key, buffer);
     } else {
         printf("P%d: File '%s' is empty\n", pcb->pid, filename);
+        char msg[256];
+        sprintf(msg, "P%d: File '%s' is empty\n", pcb->pid, filename);
+        log_message(msg);
     }
     fclose(file);
     // incrementPC(pcb);
@@ -263,6 +233,9 @@ void handleAssignFromFile(PCB *pcb, const char* var, const char* sourceVar) {
 
     if (filename == NULL) {
         printf("P%d: Filename variable '%s' not found\n", pcb->pid, sourceVar);
+        char msg[256];
+        sprintf(msg, "P%d: Filename variable '%s' not found\n", pcb->pid, sourceVar);
+        log_message(msg);
         pcb->programCounter++;
         return;
     }
@@ -270,6 +243,9 @@ void handleAssignFromFile(PCB *pcb, const char* var, const char* sourceVar) {
     FILE* file = fopen(filename, "r");
     if (file == NULL) {
         printf("P%d: Cannot open file '%s'\n", pcb->pid, filename);
+        char msg[256];
+        sprintf(msg, "P%d: Cannot open file '%s'\n", pcb->pid, filename);
+        log_message(msg);
     } else {
         char bigBuffer[500] = "";
         char lineBuffer[100];
@@ -302,6 +278,9 @@ void handleWriteFile(PCB *pcb, const char* filenameVar, const char* contentVar) 
 
     if (filename == NULL || content == NULL) {
         printf("P%d: Error writing file: missing filename or content\n", pcb->pid);
+        char msg[256];
+        sprintf(msg, "P%d: Error writing file: missing filename or content\n", pcb->pid);
+        log_message(msg);
         pcb->programCounter++;
         return;
     }
@@ -309,21 +288,18 @@ void handleWriteFile(PCB *pcb, const char* filenameVar, const char* contentVar) 
     FILE* file = fopen(filename, "w");
     if (file == NULL) {
         printf("P%d: Failed to open file '%s' for writing\n", pcb->pid, filename);
+        char msg[256];
+        sprintf(msg, "P%d: Failed to open file '%s' for writing\n", pcb->pid, filename);
+        log_message(msg);
     } else {
         fprintf(file, "%s\n", content);
         fclose(file);
+        char msg[256];
+        sprintf(msg, "P%d: Successfully wrote to file '%s'", pcb->pid, filename);
+        log_message(msg);
     }
     // incrementPC(pcb);
 }
-
-// void handleSemWait(PCB *pcb, const char* resource) {
-//     int acquired = semWait(pcb, resource);
-//     if (!acquired) {
-//         printf("P%d: Blocked while waiting for %s\n", pcb->pid, resource);
-//         return; // do not increment PC, stay on this instruction
-//     }
-//     incrementPC(pcb); // only move forward if lock is acquired
-// }
 
 void handleSemSignal(PCB *pcb, const char* resource) {
     semSignal(resource);

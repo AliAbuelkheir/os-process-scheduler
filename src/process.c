@@ -6,6 +6,8 @@
 #include "../include/process.h"
 #include "../include/fileio.h"
 #include "../include/memory.h"
+#include "../include/scheduler.h"
+
 
 PCB pcbsGlobal[3];  
 int globalPcbCount = 0;
@@ -18,11 +20,9 @@ PCB createProcess(int pid, int priority, const char* filename) {
     pcb.programCounter = 0;
 
 
-    // 1. Read program file
     char* lines[MAX_LINES];
     int lineCount = readProgramFromFile(filename, lines);
 
-    // 2. Calculate required space
     int requiredMemory = 6 + lineCount;
     int startIndex = findFreeBlock(requiredMemory);  // implement this in memory.c
 
@@ -33,7 +33,6 @@ PCB createProcess(int pid, int priority, const char* filename) {
         return pcb;
     }
 
-    // 3. Save PCB fields in memory
     char key[30], value[50];
 
     sprintf(key, "P%d_state", pid);
@@ -46,14 +45,12 @@ PCB createProcess(int pid, int priority, const char* filename) {
     sprintf(value, "%d", priority);
     setMemory(key, value);
 
-    // 4. Save instructions
     for (int i = 0; i < lineCount; i++) {
         sprintf(key, "P%d_line_%d", pid, i);
         setMemory(key, lines[i]);
         free(lines[i]);  // cleanup
     }
 
-    //5. Save 3 variables in memory
     sprintf(key, "P%d_var1", pid);
     setMemory(key, "");
     sprintf(key, "P%d_var2", pid);
@@ -61,11 +58,9 @@ PCB createProcess(int pid, int priority, const char* filename) {
     sprintf(key, "P%d_var3", pid);
     setMemory(key, "");
 
-    // 6. Set PCB memory bounds
     pcb.memLowerBound = startIndex;
     pcb.memUpperBound = startIndex + requiredMemory - 1;
 
-    // 7. Store it globally
     pcbsGlobal[globalPcbCount++] = pcb;
 
     return pcb;
@@ -85,6 +80,13 @@ void setState(PCB *pcb, const char *state) {
     char key[30];
     sprintf(key, "P%d_state", pcb->pid);
     setMemory(key, state);
+    
+    for (int i = 0; i < processCount; i++) {
+        if (processList[i].pid == pcb->pid) {
+            processList[i].lastStateChange = clockCycle;
+            break;
+        }
+    }
 }
 
 const char* getState(PCB *pcb) {
@@ -147,6 +149,7 @@ void addProcess(const char* filename, int arrivalTime) {
     processList[processCount].arrivalTime = arrivalTime;
     processList[processCount].loaded = 0;
     processList[processCount].pcb = pcb;
+    processList[processCount].lastStateChange = clockCycle; 
     strcpy(processList[processCount].sourceFile, filename); 
 
     processCount++;

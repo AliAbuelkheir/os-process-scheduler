@@ -4,6 +4,8 @@
 #include <gtk/gtk.h>
 #include "process.h"
 
+extern volatile int scheduler_wait;
+
 // User input handling
 void handle_user_input(PCB *pcb, const char* var);
 

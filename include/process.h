@@ -26,6 +26,7 @@ typedef struct {
     int loaded;  
     PCB pcb;
     char sourceFile[100];
+    int lastStateChange;
 } ProcessInfo;
 
 extern PCB pcbsGlobal[3];  
